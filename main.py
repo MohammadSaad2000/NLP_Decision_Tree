@@ -115,7 +115,7 @@ test_cases = create_test_cases(test_data, attributes)
 
 ### driver code to test accuracy of decision tree
 # change these 3 variables if needed
-max_depth = 10
+max_depth = 3
 num_trials = 3
 sample_percentage = [0.1, 0.2, 0.5, 0.8, 1]
 
