@@ -44,6 +44,8 @@ def get_max_info_gain_attribute(df):
         if current_att_info_gain > max_info_gain:
             max_info_gain = current_att_info_gain
             max_info_gain_attribute = attribute
+    if max_info_gain <= 0:
+        return None
     return max_info_gain_attribute
 
 
@@ -75,10 +77,13 @@ class Node:
 
     def __repr__(self):
         if self.attribute is None:
-            return 'ROOT'
+            return 'Root'
         s = self.attribute + ': ' + self.subtable[self.attribute][0]
         if len(self.children) == 0:
-            s += (' --> ' + self.get_label())
+            value_counts = self.subtable['Label'].value_counts()
+            max_label = value_counts.idxmax()
+            percentage_of_occurrence = round((value_counts[max_label] / len(self.subtable['Label'])) * 100, 2)
+            s += (' --> ' + max_label + ' (' + str(percentage_of_occurrence) + '%)')
         return s
 
 
@@ -99,10 +104,12 @@ class DecisionTree:
                 continue
 
             attribute_to_split_on = get_max_info_gain_attribute(current_node.subtable)
+            if attribute_to_split_on is None:
+                continue
+
             unique_values_for_attribute = current_node.subtable[attribute_to_split_on].unique()
             for value in unique_values_for_attribute:
-                new_node_subtable = get_subtable_for_attribute_value(current_node.subtable, attribute_to_split_on,
-                                                                     value)
+                new_node_subtable = get_subtable_for_attribute_value(current_node.subtable, attribute_to_split_on, value)
                 new_node = Node(new_node_subtable, attribute_to_split_on)
                 current_node.children.append(new_node)
                 if not subtable_is_homogenous(new_node_subtable):

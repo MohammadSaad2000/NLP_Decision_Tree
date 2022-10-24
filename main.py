@@ -1,21 +1,44 @@
 import pandas as pd
+import matplotlib.pyplot as plt
+
 import attributes as att
 import decision_tree as dt
 
-def create_dictionary(raw_data):
-    word_dict = dict()
+def increment_dict_count(dict, key):
+    if key in dict:
+        dict[key] += 1
+    else:
+        dict[key] = 1
+
+def create_before_after_dictionaries(raw_data):
+    words_before = dict()
+    words_after = dict()
     for line in raw_data:
         line = line.strip().lower()
         if line == '':
             continue
+
         tokens = line.split(' ')
+        target_index = int(tokens[1])
         words = tokens[2:len(tokens) - 1]
-        for word in words:
-            if word in word_dict:
-                word_dict[word] += 1
-            else:
-                word_dict[word] = 1
-    return word_dict
+
+        if target_index < 0 or target_index >= len(words):
+            continue
+
+        if target_index > 0:
+            increment_dict_count(words_before, words[target_index - 1])
+        else:
+            increment_dict_count(words_before, '<s>')
+
+        if target_index < len(words) - 1:
+            increment_dict_count(words_after, words[target_index + 1])
+        else:
+            increment_dict_count(words_after, '</s>')
+
+    #only return top 50 most occurrences
+    words_before = {k: v for k, v in sorted(words_before.items(), key=lambda item: item[1], reverse=True)[:50]}
+    words_after = {k: v for k, v in sorted(words_after.items(), key=lambda item: item[1], reverse=True)[:50]}
+    return words_before, words_after
 
 def create_attributes_data(raw_data, attributes):
     formatted_data = []
@@ -51,9 +74,8 @@ def create_test_cases(raw_data, attributes):
         test_cases.append(test_case)
     return test_cases
 
-def get_random_subset(df, fraction):
-    return df.sample(frac=fraction, ignore_index=True)
-
+def get_random_subset(df, num_examples):
+    return df.sample(num_examples, ignore_index=True)
 
 
 ### read files
@@ -67,19 +89,20 @@ train_file.close()
 test_file.close()
 
 ### create dictionary with mapping to word frequency
-word_dict = create_dictionary(train_data)
+words_before, words_after = create_before_after_dictionaries(train_data)
 
 ### create attributes/features
-attributes = {
-    'Determiner_Before/After': att.DeterminerBeforeOrAfterAttribute(),
-    'Or_After': att.OrAfterAttribute()
-}
-# Add bag of words attributes
-for word in word_dict:
-    word_count = word_dict[word]
-    # ignore words that appear less than 10% of the size the training data
-    if word_count > len(train_data) * 0.10:
-        attributes[word] = att.WordExistsAttribute(word)
+attributes = dict()
+# Add bag of words attributes for words before and after the label word
+for word in words_before:
+    word_count = words_before[word]
+    attribute_name = '"' + word + '"_Before'
+    attributes[attribute_name] = att.WordExistsBeforeAttribute(word)
+for word in words_after:
+    word_count = words_after[word]
+    attribute_name = '"' + word + '"_After'
+    attributes[attribute_name] = att.WordExistsAfterAttribute(word)
+
 
 ### create attributes table
 data = create_attributes_data(train_data, attributes)
@@ -91,21 +114,41 @@ df = pd.DataFrame(data=data, columns=column_names)
 test_cases = create_test_cases(test_data, attributes)
 
 ### driver code to test accuracy of decision tree
-max_depths = [5]
-fractions = [0.01]
-for max_depth in max_depths:
-    for fraction in fractions:
-        train_subset = get_random_subset(df, fraction)
-        print('\n\n')
-        print(train_subset)
-        print('SAMPLE SIZE:', len(train_subset.index), '(' + str(fraction * 100) + '% of full training data set)')
+# change these 3 variables if needed
+max_depth = 10
+num_trials = 3
+sample_percentage = [0.1, 0.2, 0.5, 0.8, 1]
+
+result_pairs = []
+divider_str = ''.rjust(50, '=')
+for sample_percentage in sample_percentage:
+    print(divider_str)
+    accuracy_avg = 0
+    num_train_examples = int(len(df.index) * sample_percentage)
+    print('SAMPLE SIZE:', num_train_examples, '(' + str(sample_percentage * 100) + '% of full training data set)')
+    for i in range(num_trials):
+        train_subset = get_random_subset(df, num_train_examples)
         print('Building decision tree with max depth ' + str(max_depth) + '...')
+
         decision_tree = dt.DecisionTree(train_subset, max_depth)
         decision_tree.build_tree()
 
-        print('Generated Decision Tree:')
+        print('GENERATED DECISION TREE:')
         print(decision_tree)
 
-        accuracy = dt.test_accuracy(decision_tree, test_cases)
-        print('AVERAGE ACCURACY:', accuracy, '(Averaged over ' + str(-1) + ' trials)')
+        trial_accuracy = dt.test_accuracy(decision_tree, test_cases)
+        accuracy_avg += trial_accuracy
+        print("Accuracy for trial #" + str(i + 1) + ": " + str(round(trial_accuracy * 100, 2)) + ".")
+    accuracy_avg /= num_trials
+    accuracy_percentage = round(accuracy_avg * 100, 2)
+    result_pairs.append([num_train_examples, accuracy_percentage])
+    print('\nAVERAGE ACCURACY: ' + str(accuracy_percentage) + '% (Averaged over ' + str(num_trials) + ' trials)')
 
+print(divider_str)
+print(divider_str)
+print("RESULT:")
+result_table = pd.DataFrame(data=result_pairs, columns=['# Train Examples', 'Avg Accuracy'])
+print(result_table)
+result_table.plot(x='# Train Examples', y='Avg Accuracy')
+plt.title('Performance on ID3 DT with Max Depth of ' + str(max_depth))
+plt.show()
